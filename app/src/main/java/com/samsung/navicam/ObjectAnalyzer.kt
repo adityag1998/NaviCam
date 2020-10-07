@@ -18,7 +18,6 @@ import com.google.mlkit.vision.text.TextRecognition
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.util.ArrayList
 import kotlin.collections.HashMap
 import kotlin.collections.HashSet
 
@@ -32,9 +31,11 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         const val PARSE_BUNDLE = "com.samsung.navicam.parse_bundle"
         const val KEY1 = "com.samsung.navicam.objectList"
         const val KEY2 = "com.samsung.navicam.text"
-        const val NOISE_CANCELLATION_BUFFER = 10
+        const val NOISE_CANCELLATION_BUFFER = 20
+        const val REMOVE_OBJECT_NOISE_THRESHOLD = 10
+        const val RESET_NOISE_THRESHOLD = 5
         var text: Text? = null
-        var objectDict: HashMap<String,Int> = HashMap()
+        var objectDict: HashMap<String, Int> = HashMap()
         var prevObjectSet = HashSet<String>()
 
         // Static helper function
@@ -89,7 +90,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         }
     }
 
-    private fun getObjectList(currObjectSet: java.util.HashSet<String>): ArrayList<String> {
+    private fun getObjectList(currObjectSet: HashSet<String>): ArrayList<String> {
         return ArrayList(currObjectSet)
     }
 
@@ -104,7 +105,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         return bundle
     }
 
-    private fun processBroadcast(currObjectSet: java.util.HashSet<String>){
+    private fun processBroadcast(currObjectSet: HashSet<String>){
         // Get Context
         val context:Context = MainActivity.appContext
 
@@ -122,31 +123,58 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     }
 
-    private fun getSharableObjectSet(objectDict: HashMap<String, Int>) {
-        var currObjectSet = java.util.HashSet<String>()
+    private fun displayObjectDict(objectDict: HashMap<String, Int>){
+        Log.d(TAG, "displayObjectDict: --Object Dict Start--")
         for (key in objectDict.keys){
-            if (objectDict[key] == NOISE_CANCELLATION_BUFFER){
+            Log.d(TAG, "Object: $key Frequency: ${objectDict[key]}")
+        }
+        Log.d(TAG, "displayObjectDict: --Object Dict Finish--")
+    }
+
+    private fun displaySharableObject(currObjectSet: HashSet<String>){
+        Log.d(TAG, "displaySharableObject: ---Sharable Object Start---")
+        for (obj in currObjectSet){
+            Log.d(TAG, "displaySharableObject: $obj")
+        }
+        Log.d(TAG, "displaySharableObject: ---Sharable Object Finish---")
+    }
+
+    private fun prepareSharableObjectSet(objectDict: HashMap<String, Int>) {
+        var currObjectSet = HashSet<String>()
+        for (key in objectDict.keys){
+            if (objectDict[key]!! >= REMOVE_OBJECT_NOISE_THRESHOLD){
                 currObjectSet.add(key)
             }
         }
 
         if (!currObjectSet.equals(prevObjectSet)){
             processBroadcast(currObjectSet)
+            displaySharableObject(currObjectSet)
             prevObjectSet = currObjectSet
         }
     }
 
     // Logic to maintain a dictionary in Static Variable
     private fun objectDictMaintainer(labels: List<ImageLabel>) {
+        //Log.d(TAG, "objectDictMaintainer: Before Reducing Freq")
+        //displayObjectDict(objectDict)
+
         for (key in objectDict.keys){
             // Decrement all Objects by 1
             objectDict[key] = objectDict[key]!! - 1
-
-            // If Object Freq is 0 remove it from Dict
-            if (objectDict[key] == 0){
-                objectDict.remove(key)
-            }
         }
+
+        //Log.d(TAG, "objectDictMaintainer: After Reducing Freq")
+        //displayObjectDict(objectDict)
+
+        //IMPLEMENTING SAFE DELETE TO AVOID CRASH USING ITERATOR
+        // ITERATOR SEEN IN JAVA 7
+        // THEN SEEN IN JAVA 8
+        // THEN IMPLEMENTED IN KOTLIN
+        objectDict.entries.removeIf {it.value == 0}
+        //Log.d(TAG, "objectDictMaintainer: After Removing 0 Freq")
+        //displayObjectDict(objectDict)
+
 
         // Increment found objects by 2
         for (label in labels){
@@ -158,13 +186,13 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
                 objectDict[key] = NOISE_CANCELLATION_BUFFER
             }
             else{
-                objectDict[key] = 1
+                objectDict[key] = 2
             }
         }
 
         // Net Result Old objects removed, new objects introduced and Updated Dict
         // Call getSharableObjectSet
-        getSharableObjectSet(objectDict)
+        prepareSharableObjectSet(objectDict)
     }
 
     private fun startImageClassification(
@@ -181,8 +209,8 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         // Pass processableImage to Labeler
          labeler.process(processableImage)
             .addOnSuccessListener { labels ->
-                displayObjectLabels(labels)
-                //objectDictMaintainer(labels)
+                //displayObjectLabels(labels)
+                objectDictMaintainer(labels)
             }
             .addOnFailureListener { exc ->
                 Log.e(TAG, "ObjectLabeler: $exc")
@@ -202,8 +230,8 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
         recognizer.process(processableImage)
             .addOnSuccessListener { visionText ->
-                Log.d(TAG, "Text: ${visionText.text}")
-                //text = visionText
+                //Log.d(TAG, "Text: ${visionText.text}")
+                text = visionText
             }
             .addOnFailureListener { exc ->
                 Log.e(TAG, "TextIdentifier: $exc")
@@ -214,7 +242,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     @SuppressLint("UnsafeExperimentalUsageError")
     override fun analyze(image: ImageProxy) = runBlocking{
         val intermediate = image.image
-        Log.d(TAG, "analyze override fn: ${Thread.currentThread().name}")
+        //Log.d(TAG, "analyze override fn: ${Thread.currentThread().name}")
         if (intermediate != null) {
             val processableImage =
                 InputImage.fromMediaImage(intermediate, image.imageInfo.rotationDegrees)
