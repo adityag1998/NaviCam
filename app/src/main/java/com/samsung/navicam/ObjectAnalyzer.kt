@@ -25,16 +25,16 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     companion object {
         //Static Members
+        const val DEBUG = false
         const val CONFIDENCE_THRESHOLD = 0.7f
         const val TAG = " ObjectAnalyzer"
         const val BENEFICIARY = "com.samsung.smartnotes"
         const val PARSE_BUNDLE = "com.samsung.navicam.parse_bundle"
         const val KEY1 = "com.samsung.navicam.objectList"
-        const val KEY2 = "com.samsung.navicam.text"
+        const val KEY2 = "com.samsung.navicam.blockWiseTextList"
         const val NOISE_CANCELLATION_BUFFER = 20
         const val REMOVE_OBJECT_NOISE_THRESHOLD = 10
-        const val RESET_NOISE_THRESHOLD = 5
-        var text: Text? = null
+        var visionTextObject: Text? = null
         var objectDict: HashMap<String, Int> = HashMap()
         var prevObjectSet = HashSet<String>()
 
@@ -51,7 +51,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
         // Constructor of static block
         init {
-            Log.d(TAG, "initialize objectDict class: ${Thread.currentThread().name}")
+            //Log.d(TAG, "initialize objectDict class: ${Thread.currentThread().name}")
         }
     }
 
@@ -64,11 +64,33 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         }
     }
 
-    private fun showFireToast(objectList: ArrayList<String>, text: String, context: Context){
+    private fun displayObjectDict(objectDict: HashMap<String, Int>){
+        Log.d(TAG, "displayObjectDict: --Object Dict Start--")
+        for (key in objectDict.keys){
+            Log.d(TAG, "Object: $key Frequency: ${objectDict[key]}")
+        }
+        Log.d(TAG, "displayObjectDict: --Object Dict Finish--")
+    }
+
+    private fun displayBlockWiseText(visionText: Text?){
+        Log.d(TAG, "displayBlockWiseText: --Text Blocks Start--")
+        if (visionText == null) {
+            Log.d(TAG, "displayBlockWiseText: --Text Blocks End--")
+            return
+        }
+        var count:Int = 1
+        for (block in visionText.textBlocks){
+            Log.d(TAG, "displayBlockWiseText: Block:$count Text:${block.text}")
+            count += 1
+        }
+        Log.d(TAG, "displayBlockWiseText: --Text Blocks End--")
+    }
+
+    private fun showFireToast(objectList: ArrayList<String>, blockWiseTextList: ArrayList<String>, context: Context){
         val toastText:String = """
             Broadcast is Fired: 
             Object List Size: ${objectList.size}
-            Text String Length: ${text.length}
+            Text List Size: ${blockWiseTextList.size}
             """.trimIndent()
 
         Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
@@ -76,7 +98,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     private fun showFailToast(context: Context){
         Toast.makeText(context,
-            "Companion App: com.samsung.smartnotes Not Found",
+            "Error 404: Companion app Smart Notes not found",
             Toast.LENGTH_SHORT).show()
     }
 
@@ -94,14 +116,24 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         return ArrayList(currObjectSet)
     }
 
-    private fun getText(visionText: Text?): String{
-        return visionText?.text ?: ""
+    private fun getBlockWiseTextObject(visionText: Text?): ArrayList<String> {
+        var returnableObject: ArrayList<String> = ArrayList()
+        if (visionText == null) return returnableObject
+        for (block in visionText.textBlocks){
+            val blockText = block.text
+            returnableObject.add(blockText)
+        }
+        return returnableObject
     }
 
-    private fun getBundle(objectList: ArrayList<String>, text: String): Bundle{
+    private fun setVisionTextObject(visionText: Text?){
+        visionTextObject = visionText
+    }
+
+    private fun getBundle(objectList: ArrayList<String>, blockWiseTextList: ArrayList<String>): Bundle{
         val bundle = Bundle()
         bundle.putSerializable(KEY1, objectList)
-        bundle.putSerializable(KEY2, text)
+        bundle.putSerializable(KEY2, blockWiseTextList)
         return bundle
     }
 
@@ -111,24 +143,16 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
         if (isPackageInstalled(BENEFICIARY, context.packageManager)){
             val objectList = getObjectList(currObjectSet)
-            val text = getText(text)
-            val bundle = getBundle(objectList, text)
+            val blockWiseTextList = getBlockWiseTextObject(visionTextObject)
+            val bundle = getBundle(objectList, blockWiseTextList)
             sendBroadcastIntent(bundle, context)
-            showFireToast(objectList, text, context)
+            showFireToast(objectList, blockWiseTextList, context)
         }
 
         else{
             showFailToast(context)
         }
 
-    }
-
-    private fun displayObjectDict(objectDict: HashMap<String, Int>){
-        Log.d(TAG, "displayObjectDict: --Object Dict Start--")
-        for (key in objectDict.keys){
-            Log.d(TAG, "Object: $key Frequency: ${objectDict[key]}")
-        }
-        Log.d(TAG, "displayObjectDict: --Object Dict Finish--")
     }
 
     private fun displaySharableObject(currObjectSet: HashSet<String>){
@@ -149,7 +173,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
         if (!currObjectSet.equals(prevObjectSet)){
             processBroadcast(currObjectSet)
-            displaySharableObject(currObjectSet)
+            if (DEBUG) displaySharableObject(currObjectSet)
             prevObjectSet = currObjectSet
         }
     }
@@ -167,10 +191,11 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         //Log.d(TAG, "objectDictMaintainer: After Reducing Freq")
         //displayObjectDict(objectDict)
 
-        //IMPLEMENTING SAFE DELETE TO AVOID CRASH USING ITERATOR
+        // IMPLEMENTING SAFE DELETE TO AVOID CRASH USING ITERATOR INSTEAD OF SIMPLE REMOVE
         // ITERATOR SEEN IN JAVA 7
         // THEN SEEN IN JAVA 8
-        // THEN IMPLEMENTED IN KOTLIN
+        // THEN IMPLEMENTED IN KOTLIN BY ASSUMPTIONS FROM JAVA 8
+
         objectDict.entries.removeIf {it.value == 0}
         //Log.d(TAG, "objectDictMaintainer: After Removing 0 Freq")
         //displayObjectDict(objectDict)
@@ -191,7 +216,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         }
 
         // Net Result Old objects removed, new objects introduced and Updated Dict
-        // Call getSharableObjectSet
+        // Call prepareSharableObjectSet from this dictionary
         prepareSharableObjectSet(objectDict)
     }
 
@@ -230,8 +255,8 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
         recognizer.process(processableImage)
             .addOnSuccessListener { visionText ->
-                //Log.d(TAG, "Text: ${visionText.text}")
-                text = visionText
+                //displayBlockWiseText(visionText)
+                setVisionTextObject(visionText)
             }
             .addOnFailureListener { exc ->
                 Log.e(TAG, "TextIdentifier: $exc")
