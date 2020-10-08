@@ -18,6 +18,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.collections.ArrayList
 
 class MainActivity : AppCompatActivity() {
     // Static variables
@@ -27,6 +28,7 @@ class MainActivity : AppCompatActivity() {
         private const val REQUEST_CODE_PERMISSIONS = 10
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
         lateinit var appContext:Context
+        val emptyArrayList:ArrayList<String> = ArrayList()
     }
 
     // Class members
@@ -38,6 +40,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var classificationExecutor: ExecutorService
 
     // Class helper functions
+    private fun sendEmptyBroadcast() : Bundle{
+        var bundle:Bundle = Bundle()
+        bundle.putSerializable(ObjectAnalyzer.KEY1, emptyArrayList)
+        bundle.putSerializable(ObjectAnalyzer.KEY2, emptyArrayList)
+        return bundle
+    }
+
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
         ContextCompat.checkSelfPermission(
             baseContext, it
@@ -169,6 +178,19 @@ class MainActivity : AppCompatActivity() {
                 ).show()
                 finish()
             }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        //TODO: SEND INTENT WITH EMPTY STRING ARRAYS OF BOTH IMAGE AND TEXT
+        if (ObjectAnalyzer.isPackageInstalled(ObjectAnalyzer.BENEFICIARY, packageManager)){
+            sendEmptyBroadcast()
+            ObjectAnalyzer.showFireToast(emptyArrayList, emptyArrayList, appContext)
+        }
+
+        else{
+            ObjectAnalyzer.showFailToast(appContext)
         }
     }
 

@@ -49,6 +49,22 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
             }
         }
 
+        fun showFireToast(objectList: ArrayList<String>, blockWiseTextList: ArrayList<String>, context: Context){
+            val toastText:String = """
+            Broadcast is Fired: 
+            Object List Size: ${objectList.size}
+            Text List Size: ${blockWiseTextList.size}
+            """.trimIndent()
+
+            Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
+        }
+
+        fun showFailToast(context: Context){
+            Toast.makeText(context,
+                "Error 404: Companion app Smart Notes not found",
+                Toast.LENGTH_SHORT).show()
+        }
+
         // Constructor of static block
         init {
             //Log.d(TAG, "initialize objectDict class: ${Thread.currentThread().name}")
@@ -86,22 +102,6 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         Log.d(TAG, "displayBlockWiseText: --Text Blocks End--")
     }
 
-    private fun showFireToast(objectList: ArrayList<String>, blockWiseTextList: ArrayList<String>, context: Context){
-        val toastText:String = """
-            Broadcast is Fired: 
-            Object List Size: ${objectList.size}
-            Text List Size: ${blockWiseTextList.size}
-            """.trimIndent()
-
-        Toast.makeText(context, toastText, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun showFailToast(context: Context){
-        Toast.makeText(context,
-            "Error 404: Companion app Smart Notes not found",
-            Toast.LENGTH_SHORT).show()
-    }
-
     private fun sendBroadcastIntent(bundle: Bundle, context: Context){
         Intent().also { intent ->
             intent.action = PARSE_BUNDLE
@@ -127,7 +127,10 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun setVisionTextObject(visionText: Text?){
-        visionTextObject = visionText
+        if (visionText != visionTextObject){
+            visionTextObject = visionText
+            processBroadcastText()
+        }
     }
 
     private fun getBundle(objectList: ArrayList<String>, blockWiseTextList: ArrayList<String>): Bundle{
@@ -137,7 +140,25 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         return bundle
     }
 
-    private fun processBroadcast(currObjectSet: HashSet<String>){
+    private fun processBroadcastText(){
+        // Get Context
+        val context:Context = MainActivity.appContext
+
+        if (isPackageInstalled(BENEFICIARY, context.packageManager)){
+            val objectList = getObjectList(prevObjectSet)
+            val blockWiseTextList = getBlockWiseTextObject(visionTextObject)
+            val bundle = getBundle(objectList, blockWiseTextList)
+            sendBroadcastIntent(bundle, context)
+            showFireToast(objectList, blockWiseTextList, context)
+        }
+
+        else{
+            showFailToast(context)
+        }
+
+    }
+
+    private fun processBroadcastObject(currObjectSet: HashSet<String>){
         // Get Context
         val context:Context = MainActivity.appContext
 
@@ -172,7 +193,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         }
 
         if (!currObjectSet.equals(prevObjectSet)){
-            processBroadcast(currObjectSet)
+            processBroadcastObject(currObjectSet)
             if (DEBUG) displaySharableObject(currObjectSet)
             prevObjectSet = currObjectSet
         }
