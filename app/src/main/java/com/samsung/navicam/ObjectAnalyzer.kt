@@ -35,7 +35,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         const val KEY2 = "com.samsung.navicam.blockWiseTextList"
         const val NOISE_CANCELLATION_BUFFER = 20
         const val REMOVE_OBJECT_NOISE_THRESHOLD = 10
-        const val LEVENSHTEIN_DISTANCE_THRESHOLD = 10
+        const val LEVENSHTEIN_DISTANCE_THRESHOLD = 250
         var visionTextObject: Text? = null
         var objectDict: HashMap<String, Int> = HashMap()
         var prevObjectSet = HashSet<String>()
@@ -104,32 +104,28 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         Log.d(TAG, "displayBlockWiseText: --Text Blocks End--")
     }
 
-    private fun levenshtein(lhs : CharSequence, rhs : CharSequence) : Int {
-        val lhsLength = lhs.length
-        val rhsLength = rhs.length
+    fun getLevenshteinDistance(s: String, t: String): Int {
+        // degenerate cases
+        if (s == t)  return 0
+        if (s == "") return t.length
+        if (t == "") return s.length
 
-        var cost = Array(lhsLength) { it }
-        var newCost = Array(lhsLength) { 0 }
+        // create two integer arrays of distances and initialize the first one
+        val v0 = IntArray(t.length + 1) { it }  // previous
+        val v1 = IntArray(t.length + 1)         // current
 
-        for (i in 1 until rhsLength) {
-            newCost[0] = i
-
-            for (j in 1 until lhsLength) {
-                val match = if(lhs[j - 1] == rhs[i - 1]) 0 else 1
-
-                val costReplace = cost[j - 1] + match
-                val costInsert = cost[j] + 1
-                val costDelete = newCost[j - 1] + 1
-
-                newCost[j] = min(min(costInsert, costDelete), costReplace)
+        var cost: Int
+        for (i in s.indices) {
+            // calculate v1 from v0
+            v1[0] = i + 1
+            for (j in t.indices) {
+                cost = if (s[i] == t[j]) 0 else 1
+                v1[j + 1] = min(v1[j] + 1, min(v0[j + 1] + 1, v0[j] + cost))
             }
-
-            val swap = cost
-            cost = newCost
-            newCost = swap
+            // copy v1 to v0 for next iteration
+            for (j in 0 .. t.length) v0[j] = v1[j]
         }
-
-        return cost[lhsLength - 1]
+        return v1[t.length]
     }
 
     private fun sendBroadcastIntent(bundle: Bundle, context: Context){
@@ -156,10 +152,31 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         return returnableObject
     }
 
+    private fun getCombinedString(inputText: Text?): String{
+        if (inputText == null){
+            return ""
+        }
+        val sb = StringBuilder()
+        for (block in inputText.textBlocks){
+            for (line in block.lines){
+                for (element in line.elements){
+                    //Log.d(TAG, "getCombinedStringdirect: ${element.text}")
+                    sb.append(element.text)
+                    //Log.d(TAG, "getCombinedStringaftercat: $sb")
+                }
+            }
+        }
+
+        return sb.toString()
+    }
+
     private fun setVisionTextObject(visionText: Text?){
-        val prevText: CharSequence = visionTextObject?.text.toString()
-        val currText:CharSequence = visionText?.text.toString()
-        val levenshteinDistance = levenshtein(prevText, currText)
+        val prevText = getCombinedString(visionTextObject)
+        val currText = getCombinedString(visionText)
+        //Log.d(TAG, "setVisionTextObjectPrev: $prevText")
+        //Log.d(TAG, "setVisionTextObjectPrev: $currText")
+        val levenshteinDistance = getLevenshteinDistance(prevText, currText)
+        Log.d(TAG, "setVisionTextObjectleveishtein distance: $levenshteinDistance")
         if (levenshteinDistance >= LEVENSHTEIN_DISTANCE_THRESHOLD){
             visionTextObject = visionText
             processBroadcastText()
