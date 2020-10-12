@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlin.collections.HashMap
 import kotlin.collections.HashSet
+import kotlin.math.abs
 import kotlin.math.min
 
 class ObjectAnalyzer : ImageAnalysis.Analyzer {
@@ -33,9 +34,10 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         const val PARSE_BUNDLE = "com.samsung.navicam.parse_bundle"
         const val KEY1 = "com.samsung.navicam.objectList"
         const val KEY2 = "com.samsung.navicam.blockWiseTextList"
-        const val NOISE_CANCELLATION_BUFFER = 20
-        const val REMOVE_OBJECT_NOISE_THRESHOLD = 10
-        const val LEVENSHTEIN_DISTANCE_THRESHOLD = 250
+        const val ADD_OBJECT_THRESHOLD = 10
+        const val REMOVE_OBJECT_THRESHOLD = 5
+        const val LEVENSHTEIN_DISTANCE_FACTOR = 0.5f //(When to consider string same or different in %age)
+        const val BLOCK_ACTIVATOR_THRESHOLD = 0.5f //(%age in Change in number of blocks to fire broadcast)
         var visionTextObject: Text? = null
         var objectDict: HashMap<String, Int> = HashMap()
         var prevObjectSet = HashSet<String>()
@@ -104,6 +106,24 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         Log.d(TAG, "displayBlockWiseText: --Text Blocks End--")
     }
 
+    private fun getCombinedString(inputText: Text?): String{
+        if (inputText == null){
+            return ""
+        }
+        val sb = StringBuilder()
+        for (block in inputText.textBlocks){
+            for (line in block.lines){
+                for (element in line.elements){
+                    //Log.d(TAG, "getCombinedStringdirect: ${element.text}")
+                    sb.append(element.text)
+                    //Log.d(TAG, "getCombinedStringaftercat: $sb")
+                }
+            }
+        }
+
+        return sb.toString()
+    }
+
     fun getLevenshteinDistance(s: String, t: String): Int {
         // degenerate cases
         if (s == t)  return 0
@@ -126,6 +146,39 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
             for (j in 0 .. t.length) v0[j] = v1[j]
         }
         return v1[t.length]
+    }
+
+    private fun handleTextNoiseAndBroadcast (prevText: Text, currText: Text){
+        // Compare num of Blocks in both frames
+        val blocksDiffCoefficient = ((2*abs(prevText.textBlocks.size - currText.textBlocks.size))
+            .toFloat())/((prevText.textBlocks.size + currText.textBlocks.size).toFloat())
+        if (blocksDiffCoefficient >= BLOCK_ACTIVATOR_THRESHOLD){
+            Log.d(TAG, "handleTextNoiseAndBroadcast: Fired as blocksDiff = " +
+                    "$blocksDiffCoefficient")
+            visionTextObject = currText
+            processBroadcastText()
+            return
+        }
+
+        var levenshteinDistance = 0
+        for (blockOfPrevText in prevText.textBlocks){
+            var preferredLevenshteinDistanceOfBlock = Int.MAX_VALUE
+            for (blockOfCurrText in currText.textBlocks) preferredLevenshteinDistanceOfBlock =
+                min(getLevenshteinDistance(blockOfCurrText.text, blockOfPrevText.text),
+                    preferredLevenshteinDistanceOfBlock)
+            levenshteinDistance += preferredLevenshteinDistanceOfBlock
+        }
+
+        val relativeLevenshteinCoefficient = ((2*levenshteinDistance).toFloat()/
+                (prevText.textBlocks.size + currText.textBlocks.size).toFloat())
+
+        if (relativeLevenshteinCoefficient >= LEVENSHTEIN_DISTANCE_FACTOR){
+            Log.d(TAG, "handleTextNoiseAndBroadcast: relativeLevenshteinCoefficient = " +
+                    "$relativeLevenshteinCoefficient")
+            visionTextObject = currText
+            processBroadcastText()
+            return
+        }
     }
 
     private fun sendBroadcastIntent(bundle: Bundle, context: Context){
@@ -152,35 +205,21 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         return returnableObject
     }
 
-    private fun getCombinedString(inputText: Text?): String{
-        if (inputText == null){
-            return ""
-        }
-        val sb = StringBuilder()
-        for (block in inputText.textBlocks){
-            for (line in block.lines){
-                for (element in line.elements){
-                    //Log.d(TAG, "getCombinedStringdirect: ${element.text}")
-                    sb.append(element.text)
-                    //Log.d(TAG, "getCombinedStringaftercat: $sb")
-                }
-            }
+    private fun setVisionTextObject(visionText: Text?) {
+        if (visionTextObject == null && visionText == null){
+            return
         }
 
-        return sb.toString()
-    }
-
-    private fun setVisionTextObject(visionText: Text?){
-        val prevText = getCombinedString(visionTextObject)
-        val currText = getCombinedString(visionText)
-        //Log.d(TAG, "setVisionTextObjectPrev: $prevText")
-        //Log.d(TAG, "setVisionTextObjectPrev: $currText")
-        val levenshteinDistance = getLevenshteinDistance(prevText, currText)
-        Log.d(TAG, "setVisionTextObjectleveishtein distance: $levenshteinDistance")
-        if (levenshteinDistance >= LEVENSHTEIN_DISTANCE_THRESHOLD){
+        else if (visionTextObject == null && visionText != null){
             visionTextObject = visionText
             processBroadcastText()
+            return
         }
+
+        else{
+            handleTextNoiseAndBroadcast(visionTextObject!!, visionText!!)
+        }
+
     }
 
     private fun getBundle(objectList: ArrayList<String>, blockWiseTextList: ArrayList<String>): Bundle{
@@ -235,14 +274,14 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun prepareSharableObjectSet(objectDict: HashMap<String, Int>) {
-        var currObjectSet = HashSet<String>()
+        val currObjectSet = HashSet<String>()
         for (key in objectDict.keys){
-            if (objectDict[key]!! >= REMOVE_OBJECT_NOISE_THRESHOLD){
+            if (objectDict[key]!! >= REMOVE_OBJECT_THRESHOLD){
                 currObjectSet.add(key)
             }
         }
 
-        if (!currObjectSet.equals(prevObjectSet)){
+        if (currObjectSet != prevObjectSet){
             processBroadcastObject(currObjectSet)
             if (DEBUG) displaySharableObject(currObjectSet)
             prevObjectSet = currObjectSet
@@ -275,11 +314,11 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         // Increment found objects by 2
         for (label in labels){
             val key = label.text
-            if (objectDict.containsKey(key) && objectDict[key]!! <= NOISE_CANCELLATION_BUFFER-2){
+            if (objectDict.containsKey(key) && objectDict[key]!! <= ADD_OBJECT_THRESHOLD-2){
                 objectDict[key] = objectDict[key]!! + 2
             }
-            else if (objectDict.containsKey(key) && objectDict[key]!! > NOISE_CANCELLATION_BUFFER-2){
-                objectDict[key] = NOISE_CANCELLATION_BUFFER
+            else if (objectDict.containsKey(key) && objectDict[key]!! > ADD_OBJECT_THRESHOLD-2){
+                objectDict[key] = ADD_OBJECT_THRESHOLD
             }
             else{
                 objectDict[key] = 2

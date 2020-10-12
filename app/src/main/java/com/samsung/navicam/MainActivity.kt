@@ -181,6 +181,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        //TODO: EMPTY OBJECT DICT
+        //TODO: EMPTY SHARABLE OBJECT SET
+        //TODO: EMPTY TEXT LIST
+        ObjectAnalyzer.objectDict.clear()
+        ObjectAnalyzer.prevObjectSet.clear()
+        ObjectAnalyzer.visionTextObject = null
+    }
+
     override fun onStop() {
         super.onStop()
         //TODO: SEND INTENT WITH EMPTY STRING ARRAYS OF BOTH IMAGE AND TEXT
