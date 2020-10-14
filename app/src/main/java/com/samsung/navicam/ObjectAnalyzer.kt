@@ -27,20 +27,20 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     companion object {
         //Static Members
-        const val DEBUG = false
+        const val DEBUG = true
         const val CONFIDENCE_THRESHOLD = 0.7f
         const val TAG = " ObjectAnalyzer"
         const val BENEFICIARY = "com.samsung.smartnotes"
         const val PARSE_BUNDLE = "com.samsung.navicam.parse_bundle"
         const val KEY1 = "com.samsung.navicam.objectList"
         const val KEY2 = "com.samsung.navicam.blockWiseTextList"
-        const val ADD_OBJECT_THRESHOLD = 10
+        const val ADD_OBJECT_THRESHOLD = 2
         const val REMOVE_OBJECT_THRESHOLD = 5
         const val LEVENSHTEIN_DISTANCE_FACTOR = 0.5f //(When to consider string same or different in %age)
         const val BLOCK_ACTIVATOR_THRESHOLD = 0.5f //(%age in Change in number of blocks to fire broadcast)
         var visionTextObject: Text? = null
         var objectDict: HashMap<String, Int> = HashMap()
-        var prevObjectSet = HashSet<String>()
+        var masterObjectSet = HashSet<String>()
 
         // Static helper function
         fun isPackageInstalled(packageName: String, pm: PackageManager): Boolean {
@@ -76,12 +76,14 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun displayObjectLabels(labels: List<ImageLabel>){
+        var strAll = ""
         for (label in labels){
             val text = label.text
             val confidence = label.confidence
             val index = label.index
-            Log.d(TAG, "displayObjectLabels: Object${index}, Confidence: $confidence, $text")
+            strAll += "$text$confidence "
         }
+        Log.d(TAG, "displayObjectLabels: $strAll")
     }
 
     private fun displayObjectDict(objectDict: HashMap<String, Int>){
@@ -230,11 +232,12 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun processBroadcastText(){
+        if (DEBUG) Log.d(TAG,">>> TEXT BROADCAST SENT")
         // Get Context
         val context:Context = MainActivity.appContext
 
         if (isPackageInstalled(BENEFICIARY, context.packageManager)){
-            val objectList = getObjectList(prevObjectSet)
+            val objectList = getObjectList(masterObjectSet)
             val blockWiseTextList = getBlockWiseTextObject(visionTextObject)
             val bundle = getBundle(objectList, blockWiseTextList)
             sendBroadcastIntent(bundle, context)
@@ -247,87 +250,62 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     }
 
-    private fun processBroadcastObject(currObjectSet: HashSet<String>){
+    private fun processBroadcastObject(objectSet: HashSet<String>){
         // Get Context
         val context:Context = MainActivity.appContext
 
         if (isPackageInstalled(BENEFICIARY, context.packageManager)){
-            val objectList = getObjectList(currObjectSet)
+            val objectList = getObjectList(objectSet)
             val blockWiseTextList = getBlockWiseTextObject(visionTextObject)
             val bundle = getBundle(objectList, blockWiseTextList)
             sendBroadcastIntent(bundle, context)
             showFireToast(objectList, blockWiseTextList, context)
         }
-
         else{
             showFailToast(context)
         }
-
     }
 
     private fun displaySharableObject(currObjectSet: HashSet<String>){
-        Log.d(TAG, "displaySharableObject: ---Sharable Object Start---")
+        var allStr = ">>> "
         for (obj in currObjectSet){
-            Log.d(TAG, "displaySharableObject: $obj")
+            allStr += "$obj "
         }
-        Log.d(TAG, "displaySharableObject: ---Sharable Object Finish---")
-    }
-
-    private fun prepareSharableObjectSet(objectDict: HashMap<String, Int>) {
-        val currObjectSet = HashSet<String>()
-        for (key in objectDict.keys){
-            if (objectDict[key]!! >= REMOVE_OBJECT_THRESHOLD){
-                currObjectSet.add(key)
-            }
-        }
-
-        if (currObjectSet != prevObjectSet){
-            processBroadcastObject(currObjectSet)
-            if (DEBUG) displaySharableObject(currObjectSet)
-            prevObjectSet = currObjectSet
-        }
+        Log.d(TAG, "displaySharableObject: $allStr")
     }
 
     // Logic to maintain a dictionary in Static Variable
     private fun objectDictMaintainer(labels: List<ImageLabel>) {
-        //Log.d(TAG, "objectDictMaintainer: Before Reducing Freq")
-        //displayObjectDict(objectDict)
-
-        for (key in objectDict.keys){
-            // Decrement all Objects by 1
-            objectDict[key] = objectDict[key]!! - 1
-        }
-
-        //Log.d(TAG, "objectDictMaintainer: After Reducing Freq")
-        //displayObjectDict(objectDict)
-
-        // IMPLEMENTING SAFE DELETE TO AVOID CRASH USING ITERATOR INSTEAD OF SIMPLE REMOVE
-        // ITERATOR SEEN IN JAVA 7
-        // THEN SEEN IN JAVA 8
-        // THEN IMPLEMENTED IN KOTLIN BY ASSUMPTIONS FROM JAVA 8
-
-        objectDict.entries.removeIf {it.value == 0}
-        //Log.d(TAG, "objectDictMaintainer: After Removing 0 Freq")
-        //displayObjectDict(objectDict)
-
-
-        // Increment found objects by 2
+        if (DEBUG) displayObjectLabels(labels)
         for (label in labels){
             val key = label.text
-            if (objectDict.containsKey(key) && objectDict[key]!! <= ADD_OBJECT_THRESHOLD-2){
-                objectDict[key] = objectDict[key]!! + 2
-            }
-            else if (objectDict.containsKey(key) && objectDict[key]!! > ADD_OBJECT_THRESHOLD-2){
-                objectDict[key] = ADD_OBJECT_THRESHOLD
-            }
-            else{
+            if (objectDict.containsKey(key) ){
+                if (objectDict[key]!! >= ADD_OBJECT_THRESHOLD) {
+                    objectDict[key] = REMOVE_OBJECT_THRESHOLD + 1
+                } else {
+                    objectDict[key] = objectDict[key]!! + 2
+                }
+            } else {
                 objectDict[key] = 2
             }
         }
 
-        // Net Result Old objects removed, new objects introduced and Updated Dict
-        // Call prepareSharableObjectSet from this dictionary
-        prepareSharableObjectSet(objectDict)
+        var masterSetUpdated = false
+        for (key in objectDict.keys){
+            objectDict[key] = objectDict[key]!! - 1
+            if (objectDict[key]!! >= ADD_OBJECT_THRESHOLD){
+                if(masterObjectSet.add(key)) masterSetUpdated = true
+            } else if (objectDict[key]!! <= 0){
+                objectDict[key] = 0
+                if(masterObjectSet.remove(key)) masterSetUpdated = true
+            }
+        }
+        objectDict.entries.removeIf {it.value == 0}
+
+        if(masterSetUpdated){
+            processBroadcastObject(masterObjectSet)
+            if (DEBUG) displaySharableObject(masterObjectSet)
+        }
     }
 
     private fun startImageClassification(
