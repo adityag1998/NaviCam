@@ -27,7 +27,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     companion object {
         //Static Members
-        const val DEBUG = true
+        const val DEBUG = false
         const val CONFIDENCE_THRESHOLD = 0.7f
         const val TAG = " ObjectAnalyzer"
         const val BENEFICIARY = "com.samsung.smartnotes"
@@ -36,8 +36,8 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         const val KEY2 = "com.samsung.navicam.blockWiseTextList"
         const val ADD_OBJECT_THRESHOLD = 2
         const val REMOVE_OBJECT_THRESHOLD = 5
-        const val LEVENSHTEIN_DISTANCE_FACTOR = 0.5f //(When to consider string same or different in %age)
-        const val BLOCK_ACTIVATOR_THRESHOLD = 0.5f //(%age in Change in number of blocks to fire broadcast)
+        const val LEVENSHTEIN_DISTANCE_FACTOR = 0.35f //(When to consider string same or different in %age)
+        const val BLOCK_ACTIVATOR_THRESHOLD = 0.35f //(%age in Change in number of blocks to fire broadcast)
         var visionTextObject: Text? = null
         var objectDict: HashMap<String, Int> = HashMap()
         var masterObjectSet = HashSet<String>()
@@ -126,7 +126,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         return sb.toString()
     }
 
-    fun getLevenshteinDistance(s: String, t: String): Int {
+    private fun getLevenshteinDistance(s: String, t: String): Int {
         // degenerate cases
         if (s == t)  return 0
         if (s == "") return t.length
@@ -152,8 +152,9 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     private fun handleTextNoiseAndBroadcast (prevText: Text, currText: Text){
         // Compare num of Blocks in both frames
-        val blocksDiffCoefficient = ((2*abs(prevText.textBlocks.size - currText.textBlocks.size))
-            .toFloat())/((prevText.textBlocks.size + currText.textBlocks.size).toFloat())
+        val blocksDiffCoefficient = abs(prevText.textBlocks.size - currText.textBlocks.size).
+        toFloat()/prevText.textBlocks.size.toFloat()
+
         if (blocksDiffCoefficient >= BLOCK_ACTIVATOR_THRESHOLD){
             Log.d(TAG, "handleTextNoiseAndBroadcast: Fired as blocksDiff = " +
                     "$blocksDiffCoefficient")
@@ -165,14 +166,18 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         var levenshteinDistance = 0
         for (blockOfPrevText in prevText.textBlocks){
             var preferredLevenshteinDistanceOfBlock = Int.MAX_VALUE
-            for (blockOfCurrText in currText.textBlocks) preferredLevenshteinDistanceOfBlock =
-                min(getLevenshteinDistance(blockOfCurrText.text, blockOfPrevText.text),
-                    preferredLevenshteinDistanceOfBlock)
+            for (blockOfCurrText in currText.textBlocks){
+                //assign most similar (min edit distance to block)
+                preferredLevenshteinDistanceOfBlock =
+                    min(getLevenshteinDistance(blockOfCurrText.text, blockOfPrevText.text),
+                        preferredLevenshteinDistanceOfBlock)
+            }
+            //accumulate all blocks to get of complete text
             levenshteinDistance += preferredLevenshteinDistanceOfBlock
         }
 
-        val relativeLevenshteinCoefficient = ((2*levenshteinDistance).toFloat()/
-                (prevText.textBlocks.size + currText.textBlocks.size).toFloat())
+        val relativeLevenshteinCoefficient = (2*levenshteinDistance).toFloat()/
+                (prevText.text.length + currText.text.length).toFloat()
 
         if (relativeLevenshteinCoefficient >= LEVENSHTEIN_DISTANCE_FACTOR){
             Log.d(TAG, "handleTextNoiseAndBroadcast: relativeLevenshteinCoefficient = " +
@@ -198,7 +203,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun getBlockWiseTextObject(visionText: Text?): ArrayList<String> {
-        var returnableObject: ArrayList<String> = ArrayList()
+        val returnableObject: ArrayList<String> = ArrayList()
         if (visionText == null) return returnableObject
         for (block in visionText.textBlocks){
             val blockText = block.text
@@ -232,7 +237,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun processBroadcastText(){
-        if (DEBUG) Log.d(TAG,">>> TEXT BROADCAST SENT")
+        Log.d(TAG,">>> TEXT BROADCAST SENT")
         // Get Context
         val context:Context = MainActivity.appContext
 
@@ -251,6 +256,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun processBroadcastObject(objectSet: HashSet<String>){
+        Log.d(TAG,">>> OBJECT BROADCAST SENT")
         // Get Context
         val context:Context = MainActivity.appContext
 
