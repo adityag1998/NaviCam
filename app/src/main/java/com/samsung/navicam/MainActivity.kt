@@ -187,7 +187,7 @@ class MainActivity : AppCompatActivity() {
         //TODO: EMPTY SHARABLE OBJECT SET
         //TODO: EMPTY TEXT LIST
         ObjectAnalyzer.objectDict.clear()
-        ObjectAnalyzer.prevObjectSet.clear()
+        ObjectAnalyzer.masterObjectSet.clear()
         ObjectAnalyzer.visionTextObject = null
     }
 
