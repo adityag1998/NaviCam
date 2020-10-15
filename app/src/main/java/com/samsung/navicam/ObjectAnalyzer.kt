@@ -21,13 +21,14 @@ import kotlinx.coroutines.runBlocking
 import kotlin.collections.HashMap
 import kotlin.collections.HashSet
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     companion object {
         //Static Members
-        const val DEBUG = false
+        const val DEBUG = true
         const val CONFIDENCE_THRESHOLD = 0.7f
         const val TAG = " ObjectAnalyzer"
         const val BENEFICIARY = "com.samsung.smartnotes"
@@ -37,7 +38,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         const val ADD_OBJECT_THRESHOLD = 2
         const val REMOVE_OBJECT_THRESHOLD = 5
         const val LEVENSHTEIN_DISTANCE_FACTOR = 0.35f //(When to consider string same or different in %age)
-        const val BLOCK_ACTIVATOR_THRESHOLD = 0.35f //(%age in Change in number of blocks to fire broadcast)
+        const val BLOCK_ACTIVATOR_THRESHOLD = 0.45f //(%age in Change in number of blocks to fire broadcast)
         var visionTextObject: Text? = null
         var objectDict: HashMap<String, Int> = HashMap()
         var masterObjectSet = HashSet<String>()
@@ -53,7 +54,8 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
             }
         }
 
-        fun showFireToast(objectList: ArrayList<String>, blockWiseTextList: ArrayList<String>, context: Context){
+        fun showFireToast(objectList: ArrayList<String>, blockWiseTextList: ArrayList<String>, context: Context) {
+            if (!DEBUG) return
             val toastText:String = """
             Broadcast is Fired: 
             Object List Size: ${objectList.size}
@@ -65,7 +67,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
         fun showFailToast(context: Context){
             Toast.makeText(context,
-                "Error 404: Companion app Smart Notes not found",
+                "Companion app Smart Notes not found",
                 Toast.LENGTH_SHORT).show()
         }
 
@@ -152,16 +154,18 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     private fun handleTextNoiseAndBroadcast (prevText: Text, currText: Text){
         // Compare num of Blocks in both frames
+        //displayBlockWiseText(currText)
         val blocksDiffCoefficient = abs(prevText.textBlocks.size - currText.textBlocks.size).
-        toFloat()/prevText.textBlocks.size.toFloat()
-
+        toFloat()/ max(prevText.textBlocks.size, currText.textBlocks.size).toFloat()
+        //Log.d(TAG, "handleTextNoiseAndBroadcast: blocksDiff = " +
+        //        "$blocksDiffCoefficient")
         if (blocksDiffCoefficient >= BLOCK_ACTIVATOR_THRESHOLD){
-            Log.d(TAG, "handleTextNoiseAndBroadcast: Fired as blocksDiff = " +
-                    "$blocksDiffCoefficient")
             visionTextObject = currText
             processBroadcastText()
+            //Log.d(TAG, "------------------------BD------------------------------")
             return
         }
+
 
         var levenshteinDistance = 0
         for (blockOfPrevText in prevText.textBlocks){
@@ -178,14 +182,17 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
         val relativeLevenshteinCoefficient = (2*levenshteinDistance).toFloat()/
                 (prevText.text.length + currText.text.length).toFloat()
-
+        //Log.d(TAG, "handleTextNoiseAndBroadcast: relativeLevenshteinCoefficient = " +
+        //        "$relativeLevenshteinCoefficient")
         if (relativeLevenshteinCoefficient >= LEVENSHTEIN_DISTANCE_FACTOR){
-            Log.d(TAG, "handleTextNoiseAndBroadcast: relativeLevenshteinCoefficient = " +
-                    "$relativeLevenshteinCoefficient")
             visionTextObject = currText
             processBroadcastText()
+            //Log.d(TAG, "------------------------------------------------------")
             return
         }
+        //Log.d(TAG, "------------------------------------------------------")
+
+        visionTextObject = currText
     }
 
     private fun sendBroadcastIntent(bundle: Bundle, context: Context){
@@ -219,6 +226,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
         else if (visionTextObject == null && visionText != null){
             visionTextObject = visionText
+            Log.d(TAG, "------------------------------PREV-NULL-----------------------")
             processBroadcastText()
             return
         }

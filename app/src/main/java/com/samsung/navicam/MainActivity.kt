@@ -194,6 +194,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         //TODO: SEND INTENT WITH EMPTY STRING ARRAYS OF BOTH IMAGE AND TEXT
+        Log.d(TAG, "onStop: ----------------- You Pressed Home Button ---------------------")
         if (ObjectAnalyzer.isPackageInstalled(ObjectAnalyzer.BENEFICIARY, packageManager)){
             sendEmptyBroadcast()
             ObjectAnalyzer.showFireToast(emptyArrayList, emptyArrayList, appContext)
