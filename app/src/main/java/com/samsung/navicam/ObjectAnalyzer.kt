@@ -37,8 +37,9 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         const val KEY2 = "com.samsung.navicam.blockWiseTextList"
         const val ADD_OBJECT_THRESHOLD = 2
         const val REMOVE_OBJECT_THRESHOLD = 5
+        const val OVERALL_DISTANCE_THRESHOLD = 0.45f
         const val LEVENSHTEIN_DISTANCE_FACTOR = 0.35f //(When to consider string same or different in %age)
-        const val BLOCK_ACTIVATOR_THRESHOLD = 0.45f //(%age in Change in number of blocks to fire broadcast)
+        const val BLOCK_ACTIVATOR_THRESHOLD = 0.5f //(%age in Change in number of blocks to fire broadcast)
         var visionTextObject: Text? = null
         var objectDict: HashMap<String, Int> = HashMap()
         var masterObjectSet = HashSet<String>()
@@ -74,6 +75,16 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         // Constructor of static block
         init {
             //Log.d(TAG, "initialize objectDict class: ${Thread.currentThread().name}")
+        }
+
+        fun sendBroadcastIntent(bundle: Bundle, context: Context){
+            Intent().also { intent ->
+                intent.action = PARSE_BUNDLE
+                intent.addCategory("android.intent.category.DEFAULT")
+                intent.setPackage(BENEFICIARY)
+                intent.putExtras(bundle)
+                context.sendBroadcast(intent)
+            }
         }
     }
 
@@ -153,16 +164,38 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun handleTextNoiseAndBroadcast (prevText: Text, currText: Text){
+        //Log.d(TAG, "handleTextNoiseAndBroadcast")
+        //top level / broad filter
+        var fulltextPrev = prevText.getText()
+        var fulltextCurr = currText.getText()
+        if (fulltextPrev.isEmpty() && fulltextCurr.isEmpty()) return
+        val topLevelDist = getLevenshteinDistance(fulltextPrev,fulltextCurr)
+        val relativeTopLevelDist = (2*topLevelDist).toFloat()/
+                (fulltextPrev.length + fulltextCurr.length).toFloat()
+        if (relativeTopLevelDist <= OVERALL_DISTANCE_THRESHOLD) {
+            return
+        }
         // Compare num of Blocks in both frames
-        //displayBlockWiseText(currText)
         val blocksDiffCoefficient = abs(prevText.textBlocks.size - currText.textBlocks.size).
         toFloat()/ max(prevText.textBlocks.size, currText.textBlocks.size).toFloat()
-        //Log.d(TAG, "handleTextNoiseAndBroadcast: blocksDiff = " +
-        //        "$blocksDiffCoefficient")
-        if (blocksDiffCoefficient >= BLOCK_ACTIVATOR_THRESHOLD){
+        if (blocksDiffCoefficient > BLOCK_ACTIVATOR_THRESHOLD){
+            if(DEBUG){
+                Log.d(TAG, "handleTextNoiseAndBroadcast: relativeTopLevelDist($OVERALL_DISTANCE_THRESHOLD) = " +
+                        "$relativeTopLevelDist")
+                Log.d(TAG,fulltextPrev)
+                Log.d(TAG,"~~fulltext~~")
+                Log.d(TAG,fulltextCurr)
+                Log.d(TAG,"topLevel check overridden")
+                Log.d(TAG,
+                    "handleTextNoiseAndBroadcast: blocksDiff($BLOCK_ACTIVATOR_THRESHOLD) = $blocksDiffCoefficient"
+                )
+                displayBlockWiseText(prevText)
+                Log.d(TAG,"^^BD^^")
+                displayBlockWiseText(currText)
+                Log.d(TAG, "------------------------BD------------------------------")
+            }
             visionTextObject = currText
             processBroadcastText()
-            //Log.d(TAG, "------------------------BD------------------------------")
             return
         }
 
@@ -179,30 +212,30 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
             //accumulate all blocks to get of complete text
             levenshteinDistance += preferredLevenshteinDistanceOfBlock
         }
-
         val relativeLevenshteinCoefficient = (2*levenshteinDistance).toFloat()/
                 (prevText.text.length + currText.text.length).toFloat()
-        //Log.d(TAG, "handleTextNoiseAndBroadcast: relativeLevenshteinCoefficient = " +
-        //        "$relativeLevenshteinCoefficient")
         if (relativeLevenshteinCoefficient >= LEVENSHTEIN_DISTANCE_FACTOR){
+            if(DEBUG){
+                Log.d(TAG, "handleTextNoiseAndBroadcast: relativeTopLevelDist($OVERALL_DISTANCE_THRESHOLD) = " +
+                        "$relativeTopLevelDist")
+                Log.d(TAG,fulltextPrev)
+                Log.d(TAG,"~~fulltext~~")
+                Log.d(TAG,fulltextCurr)
+                Log.d(TAG,"topLevel check overridden")
+                Log.d(TAG,
+                    "handleTextNoiseAndBroadcast: relativeLevenshteinCoefficient($LEVENSHTEIN_DISTANCE_FACTOR) = $relativeLevenshteinCoefficient"
+                )
+                displayBlockWiseText(prevText)
+                Log.d(TAG,"^^LD^^")
+                displayBlockWiseText(currText)
+                Log.d(TAG, "-----------------------LD-------------------------------")
+            }
             visionTextObject = currText
             processBroadcastText()
-            //Log.d(TAG, "------------------------------------------------------")
             return
         }
-        //Log.d(TAG, "------------------------------------------------------")
-
+        //Log.d(TAG, "---------------------------------------------------")
         visionTextObject = currText
-    }
-
-    private fun sendBroadcastIntent(bundle: Bundle, context: Context){
-        Intent().also { intent ->
-            intent.action = PARSE_BUNDLE
-            intent.addCategory("android.intent.category.DEFAULT")
-            intent.setPackage(BENEFICIARY)
-            intent.putExtras(bundle)
-            context.sendBroadcast(intent)
-        }
     }
 
     private fun getObjectList(currObjectSet: HashSet<String>): ArrayList<String> {
@@ -226,7 +259,6 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
         else if (visionTextObject == null && visionText != null){
             visionTextObject = visionText
-            Log.d(TAG, "------------------------------PREV-NULL-----------------------")
             processBroadcastText()
             return
         }
@@ -245,7 +277,8 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun processBroadcastText(){
-        Log.d(TAG,">>> TEXT BROADCAST SENT")
+        if (!MainActivity.bcEnabled) return
+        Log.d(TAG,">>> T E X T    BROADCAST SENT")
         // Get Context
         val context:Context = MainActivity.appContext
 
@@ -253,7 +286,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
             val objectList = getObjectList(masterObjectSet)
             val blockWiseTextList = getBlockWiseTextObject(visionTextObject)
             val bundle = getBundle(objectList, blockWiseTextList)
-            sendBroadcastIntent(bundle, context)
+            Companion.sendBroadcastIntent(bundle, context)
             showFireToast(objectList, blockWiseTextList, context)
         }
 
@@ -264,7 +297,8 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
     }
 
     private fun processBroadcastObject(objectSet: HashSet<String>){
-        Log.d(TAG,">>> OBJECT BROADCAST SENT")
+        if (!MainActivity.bcEnabled) return
+        Log.d(TAG,">>> ### OBJECT ##  BROADCAST SENT")
         // Get Context
         val context:Context = MainActivity.appContext
 
@@ -272,7 +306,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
             val objectList = getObjectList(objectSet)
             val blockWiseTextList = getBlockWiseTextObject(visionTextObject)
             val bundle = getBundle(objectList, blockWiseTextList)
-            sendBroadcastIntent(bundle, context)
+            Companion.sendBroadcastIntent(bundle, context)
             showFireToast(objectList, blockWiseTextList, context)
         }
         else{
@@ -290,6 +324,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     // Logic to maintain a dictionary in Static Variable
     private fun objectDictMaintainer(labels: List<ImageLabel>) {
+        //Log.d(TAG, "objectDictMaintainer")
         if (DEBUG) displayObjectLabels(labels)
         for (label in labels){
             val key = label.text
@@ -327,6 +362,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         image: ImageProxy,
         textReadJob: Job,
     ): Unit {
+        //Log.d(TAG, "startImageClassification")
         //Set Options and get an Image Labeler
         val options = ImageLabelerOptions.Builder()
             .setConfidenceThreshold(CONFIDENCE_THRESHOLD)
@@ -368,6 +404,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     @SuppressLint("UnsafeExperimentalUsageError")
     override fun analyze(image: ImageProxy) = runBlocking{
+        //Log.d(TAG, "analyze")
         val intermediate = image.image
         //Log.d(TAG, "analyze override fn: ${Thread.currentThread().name}")
         if (intermediate != null) {

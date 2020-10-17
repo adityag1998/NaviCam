@@ -12,6 +12,7 @@ import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.samsung.navicam.ObjectAnalyzer.Companion.sendBroadcastIntent
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
 import java.text.SimpleDateFormat
@@ -23,12 +24,14 @@ import kotlin.collections.ArrayList
 class MainActivity : AppCompatActivity() {
     // Static variables
     companion object {
+        const val DEBUG = false
         private const val TAG = "CameraXBasic"
         private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private const val REQUEST_CODE_PERMISSIONS = 10
         private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
         lateinit var appContext:Context
         val emptyArrayList:ArrayList<String> = ArrayList()
+        var bcEnabled =true
     }
 
     // Class members
@@ -40,11 +43,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var classificationExecutor: ExecutorService
 
     // Class helper functions
-    private fun sendEmptyBroadcast() : Bundle{
+    private fun sendEmptyBroadcast() {
+        val context:Context = MainActivity.appContext
         var bundle:Bundle = Bundle()
         bundle.putSerializable(ObjectAnalyzer.KEY1, emptyArrayList)
         bundle.putSerializable(ObjectAnalyzer.KEY2, emptyArrayList)
-        return bundle
+        sendBroadcastIntent(bundle, context)
+        if (DEBUG) Toast.makeText(context, "EXIT_INTENT", Toast.LENGTH_SHORT).show()
     }
 
     private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
@@ -62,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startCamera() {
+        Log.d(TAG, "startCamera")
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
         cameraProviderFuture.addListener(Runnable {
@@ -137,6 +143,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.d(TAG, "onCreate")
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
@@ -181,11 +188,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        Log.d(TAG, "onResume")
+        bcEnabled = true
+    }
+
     override fun onPause() {
         super.onPause()
-        //TODO: EMPTY OBJECT DICT
-        //TODO: EMPTY SHARABLE OBJECT SET
-        //TODO: EMPTY TEXT LIST
+        Log.d(TAG, "onPause")
+        bcEnabled = false
         ObjectAnalyzer.objectDict.clear()
         ObjectAnalyzer.masterObjectSet.clear()
         ObjectAnalyzer.visionTextObject = null
@@ -193,19 +205,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        //TODO: SEND INTENT WITH EMPTY STRING ARRAYS OF BOTH IMAGE AND TEXT
-        Log.d(TAG, "onStop: ----------------- You Pressed Home Button ---------------------")
+        Log.d(TAG, "onStop  -  exit_intent")
         if (ObjectAnalyzer.isPackageInstalled(ObjectAnalyzer.BENEFICIARY, packageManager)){
-            sendEmptyBroadcast()
-            ObjectAnalyzer.showFireToast(emptyArrayList, emptyArrayList, appContext)
-        }
-
-        else{
+            this.sendEmptyBroadcast()
+        } else {
             ObjectAnalyzer.showFailToast(appContext)
         }
     }
 
     override fun onDestroy() {
+        Log.d(TAG, "onDestroy")
         super.onDestroy()
         classificationExecutor.shutdown()
     }
