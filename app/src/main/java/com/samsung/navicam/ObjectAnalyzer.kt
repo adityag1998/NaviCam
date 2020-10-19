@@ -28,7 +28,7 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     companion object {
         //Static Members
-        const val DEBUG = true
+        const val DEBUG = false
         const val CONFIDENCE_THRESHOLD = 0.7f
         const val TAG = " ObjectAnalyzer"
         const val BENEFICIARY = "com.samsung.smartnotes"
