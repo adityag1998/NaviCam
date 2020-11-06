@@ -23,12 +23,15 @@ import kotlin.collections.HashSet
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.properties.Delegates
+import kotlin.system.measureTimeMillis
 
 class ObjectAnalyzer : ImageAnalysis.Analyzer {
 
     companion object {
         //Static Members
         const val DEBUG = false
+        const val SHOW_TIME = true
         const val CONFIDENCE_THRESHOLD = 0.7f
         const val TAG = " ObjectAnalyzer"
         const val BENEFICIARY = "com.samsung.smartnotes"
@@ -410,8 +413,16 @@ class ObjectAnalyzer : ImageAnalysis.Analyzer {
         if (intermediate != null) {
             val processableImage =
                 InputImage.fromMediaImage(intermediate, image.imageInfo.rotationDegrees)
-            val textReadJob = launch { startTextClassification(processableImage) }
-            launch {startImageClassification(processableImage, image, textReadJob)}
+            val textReadJob = launch {
+                val timeTextDetection = measureTimeMillis { startTextClassification(processableImage) }
+                if(SHOW_TIME){
+                    Log.d(TAG, "Parallel Job: TextDetection took: $timeTextDetection")}
+            }
+            launch {
+                val timeObjectDetection = measureTimeMillis { startImageClassification(processableImage, image, textReadJob) }
+                if(SHOW_TIME){
+                    Log.d(TAG, "Parallel Job: ObjectDetection took: $timeObjectDetection")}
+                }
+            }
         }
     }
-}
